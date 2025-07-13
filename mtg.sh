@@ -7,31 +7,68 @@ DOMAIN="www.radmancarpet.ir"
 CONFIG_PATH="/etc/mtg.toml"
 SERVICE_PATH="/etc/systemd/system/mtg.service"
 
+echo "[+] Cleaning up previous installations..."
+# Stop and disable service if it exists
+if systemctl is-active --quiet mtg 2>/dev/null; then
+    echo "[!] Stopping existing mtg service..."
+    sudo systemctl stop mtg
+fi
+if systemctl is-enabled --quiet mtg 2>/dev/null; then
+    echo "[!] Disabling existing mtg service..."
+    sudo systemctl disable mtg
+fi
+
+# Remove old files if they exist
+if [ -f /usr/local/bin/mtg ]; then
+    echo "[!] Removing existing mtg binary..."
+    sudo rm -f /usr/local/bin/mtg
+fi
+if [ -f "$CONFIG_PATH" ]; then
+    echo "[!] Removing existing config file..."
+    sudo rm -f "$CONFIG_PATH"
+fi
+if [ -f "$SERVICE_PATH" ]; then
+    echo "[!] Removing existing service file..."
+    sudo rm -f "$SERVICE_PATH"
+fi
+
+# Clean up any existing mtg directories in current path
+if [ -d "mtg" ]; then
+    echo "[!] Removing existing mtg directory..."
+    rm -rf mtg
+fi
+# Clean up any timestamped mtg directories
+for dir in mtg-*; do
+    if [ -d "$dir" ]; then
+        echo "[!] Removing existing directory: $dir"
+        rm -rf "$dir"
+    fi
+done 2>/dev/null || true
+
 echo "[+] Installing Go and dependencies..."
 sudo apt update
 sudo apt install -y golang-go git jq
 
 echo "[+] Preparing workspace..."
-# Create a temporary directory and work there
+# Create a unique temporary directory
 TEMP_DIR=$(mktemp -d)
+echo "[+] Working in temporary directory: $TEMP_DIR"
 cd "$TEMP_DIR"
 
-echo "[+] Cloning mtg repository..."
-git clone https://github.com/9seconds/mtg.git
-cd mtg
+echo "[+] Downloading mtg repository..."
+# Use a unique directory name to avoid conflicts
+REPO_DIR="mtg-$(date +%s)"
+git clone https://github.com/9seconds/mtg.git "$REPO_DIR"
+cd "$REPO_DIR"
 
 echo "[+] Building mtg..."
 go build
 
 echo "[+] Installing mtg binary..."
-# Remove existing file if it exists to avoid permission errors
-if [ -f /usr/local/bin/mtg ]; then
-    echo "[!] Removing existing mtg binary..."
-    sudo rm -f /usr/local/bin/mtg
-fi
-sudo cp mtg /usr/local/bin
+sudo cp mtg /usr/local/bin/
+sudo chmod +x /usr/local/bin/mtg
 
-echo "[+] Cleaning up..."
+echo "[+] Cleaning up build directory..."
 cd /
 rm -rf "$TEMP_DIR"
 
