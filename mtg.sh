@@ -17,7 +17,15 @@ cd mtg
 
 echo "[+] Building mtg..."
 go build
+
+echo "[+] Installing mtg binary..."
+# Remove existing file if it exists to avoid permission errors
+if [ -f /usr/local/bin/mtg ]; then
+    echo "[!] Removing existing mtg binary..."
+    sudo rm -f /usr/local/bin/mtg
+fi
 sudo cp mtg /usr/local/bin
+
 cd ..
 rm -rf mtg
 
