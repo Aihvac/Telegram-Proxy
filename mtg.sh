@@ -12,6 +12,11 @@ sudo apt update
 sudo apt install -y golang-go git jq
 
 echo "[+] Cloning mtg repository..."
+# Remove existing mtg directory if it exists
+if [ -d "mtg" ]; then
+    echo "[!] Removing existing mtg directory..."
+    rm -rf mtg
+fi
 git clone https://github.com/9seconds/mtg.git
 cd mtg
 
