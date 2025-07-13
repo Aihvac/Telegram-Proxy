@@ -11,12 +11,12 @@ echo "[+] Installing Go and dependencies..."
 sudo apt update
 sudo apt install -y golang-go git jq
 
+echo "[+] Preparing workspace..."
+# Create a temporary directory and work there
+TEMP_DIR=$(mktemp -d)
+cd "$TEMP_DIR"
+
 echo "[+] Cloning mtg repository..."
-# Remove existing mtg directory if it exists
-if [ -d "mtg" ]; then
-    echo "[!] Removing existing mtg directory..."
-    rm -rf mtg
-fi
 git clone https://github.com/9seconds/mtg.git
 cd mtg
 
@@ -31,8 +31,9 @@ if [ -f /usr/local/bin/mtg ]; then
 fi
 sudo cp mtg /usr/local/bin
 
-cd ..
-rm -rf mtg
+echo "[+] Cleaning up..."
+cd /
+rm -rf "$TEMP_DIR"
 
 echo "[+] Generating MTProto secret..."
 SECRET=$(mtg generate-secret "$DOMAIN" | tail -n 1)
