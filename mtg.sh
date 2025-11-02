@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DOMAIN="www.parandradmancarpet.ir"
+DOMAIN="www.radmancarpet.ir"
 CONFIG_PATH="/etc/mtg.toml"
 SERVICE_PATH="/etc/systemd/system/mtg.service"
 PORT="3128"
@@ -32,11 +32,11 @@ sudo mv mtg /usr/local/bin/
 sudo chmod +x /usr/local/bin/mtg
 
 echo "[+] Generating MTProto secret..."
-SECRET=$(mtg generate-secret "$DOMAIN" | grep -oE '[0-9a-fA-F]{64}$')
+SECRET=$(mtg generate-secret "$DOMAIN" | grep -oE '[0-9a-fA-F]{64}$' || true)
 
 if [ -z "$SECRET" ]; then
-    echo "[❌] Failed to generate secret!"
-    exit 1
+    echo "[⚠️] Failed to generate secret automatically, generating random one..."
+    SECRET=$(openssl rand -hex 32)
 fi
 
 echo "[+] Creating config file..."
@@ -67,11 +67,22 @@ sudo systemctl daemon-reload
 sudo systemctl enable mtg
 sudo systemctl start mtg
 
-echo "[✓] MTG installed and running successfully."
+if ! systemctl is-active --quiet mtg; then
+    echo "[⚠️] mtg service failed to start. Check logs using: sudo journalctl -u mtg -e"
+else
+    echo "[✓] MTG installed and running successfully."
+fi
+
 echo ""
 echo "📡 Proxy Links:"
-mtg access "$CONFIG_PATH" | jq -r '.ipv4.tg_url'
-mtg access "$CONFIG_PATH" | jq -r '.ipv6.tg_url'
+if mtg access "$CONFIG_PATH" &>/dev/null; then
+    mtg access "$CONFIG_PATH" | jq -r '.ipv4.tg_url'
+    mtg access "$CONFIG_PATH" | jq -r '.ipv6.tg_url'
+else
+    echo "⚠️ Could not retrieve links automatically. Try manually:"
+    echo "mtg access $CONFIG_PATH"
+fi
+
 echo ""
 echo "🌐 Domain: $DOMAIN"
 echo "🔑 Secret: $SECRET"
