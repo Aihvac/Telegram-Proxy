@@ -1,45 +1,49 @@
 #!/bin/bash
 set -e
 
-DOMAIN="www.parandradmancarpet.ir"
+DOMAIN="www.radmancarpet.ir"
 CONFIG_PATH="/etc/mtg.toml"
 SERVICE_PATH="/etc/systemd/system/mtg.service"
 PORT="3128"
 
 echo "[+] Cleaning up previous installations..."
-sudo systemctl stop mtg 2>/dev/null || true
-sudo systemctl disable mtg 2>/dev/null || true
-sudo rm -f /usr/local/bin/mtg "$CONFIG_PATH" "$SERVICE_PATH" 2>/dev/null || true
-sudo rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list 2>/dev/null || true
+if systemctl is-active --quiet mtg 2>/dev/null; then
+    systemctl stop mtg
+fi
+if systemctl is-enabled --quiet mtg 2>/dev/null; then
+    systemctl disable mtg
+fi
+rm -f /usr/local/bin/mtg "$CONFIG_PATH" "$SERVICE_PATH"
+rm -rf mtg*
 
-echo "[+] Installing Go and dependencies..."
+echo "[+] Installing dependencies..."
 sudo apt update -y
 sudo apt install -y golang-go git jq
 
+echo "[+] Preparing workspace..."
 TEMP_DIR=$(mktemp -d)
-echo "[+] Working in temporary directory: $TEMP_DIR"
 cd "$TEMP_DIR"
 
 echo "[+] Cloning mtg repository..."
-git clone https://github.com/9seconds/mtg.git
+git clone https://github.com/9seconds/mtg.git mtg
 cd mtg
 
 echo "[+] Building mtg..."
-go build -o mtg
+go build
 
 echo "[+] Installing mtg binary..."
-sudo mv mtg /usr/local/bin/
+sudo cp mtg /usr/local/bin/
 sudo chmod +x /usr/local/bin/mtg
 
-echo "[+] Generating MTProto secret..."
-SECRET=$(mtg generate-secret "$DOMAIN" | grep -oE '[0-9a-fA-F]{64}$' || true)
+echo "[+] Generating FakeTLS secret..."
+SECRET=$(mtg generate-secret tls "$DOMAIN" | tail -n 1 | grep -Eo '[a-f0-9]+')
 
-if [ -z "$SECRET" ]; then
-    echo "[⚠️] Failed to generate secret automatically, generating random one..."
-    SECRET=$(openssl rand -hex 32)
+if [[ ! $SECRET =~ ^(ee|dd)[a-f0-9]{62}$ ]]; then
+    echo "[!] Invalid secret generated, using fallback FakeTLS secret..."
+    SECRET=$(mtg generate-secret tls "$DOMAIN" | tail -n 1 | grep -Eo '[a-f0-9]+')
 fi
 
-echo "[+] Creating config file..."
+echo "[+] Saving config..."
 sudo tee "$CONFIG_PATH" > /dev/null <<EOF
 secret = "$SECRET"
 bind-to = "0.0.0.0:$PORT"
@@ -62,28 +66,15 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 WantedBy=multi-user.target
 EOF
 
-echo "[+] Enabling and starting mtg service..."
 sudo systemctl daemon-reload
 sudo systemctl enable mtg
 sudo systemctl start mtg
 
-if ! systemctl is-active --quiet mtg; then
-    echo "[⚠️] mtg service failed to start. Check logs using: sudo journalctl -u mtg -e"
-else
-    echo "[✓] MTG installed and running successfully."
-fi
-
-echo ""
-echo "📡 Proxy Links:"
-if mtg access "$CONFIG_PATH" &>/dev/null; then
-    mtg access "$CONFIG_PATH" | jq -r '.ipv4.tg_url'
-    mtg access "$CONFIG_PATH" | jq -r '.ipv6.tg_url'
-else
-    echo "⚠️ Could not retrieve links automatically. Try manually:"
-    echo "mtg access $CONFIG_PATH"
-fi
-
-echo ""
-echo "🌐 Domain: $DOMAIN"
-echo "🔑 Secret: $SECRET"
-echo "🚪 Port: $PORT"
+echo "[✓] MTG installed and running."
+echo
+echo "--------------------------------------"
+echo "🔗 Telegram Proxy Links:"
+sleep 2
+mtg access "$CONFIG_PATH" | jq -r '.ipv4.tg_url'
+mtg access "$CONFIG_PATH" | jq -r '.ipv6.tg_url'
+echo "--------------------------------------"
