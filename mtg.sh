@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DOMAIN="www.radmancarpet.ir"
+DOMAIN="www.parandradmancarpet.ir"
 CONFIG_PATH="/etc/mtg.toml"
 SERVICE_PATH="/etc/systemd/system/mtg.service"
 PORT="3128"
