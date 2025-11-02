@@ -1,52 +1,46 @@
 #!/usr/bin/env bash
-# install_run_mtg.sh
-# Script to install mtg, generate secret, and run MTProxy as a systemd service
-# Default domain: www.parandsahandcarpet.ir
+# install_run_mtg_https.sh
+# MTProxy setup with real TLS via Let's Encrypt + nginx reverse proxy
 # Usage:
-#   sudo bash install_run_mtg.sh                # uses default domain
-#   sudo bash install_run_mtg.sh example.com   # uses custom domain
+#   sudo bash install_run_mtg_https.sh                # uses default domain
+#   sudo bash install_run_mtg_https.sh example.com   # uses custom domain
 
 set -euo pipefail
 
-# ---------- Config ----------
 DEFAULT_DOMAIN="www.parandsahandcarpet.ir"
 DOMAIN="${1:-$DEFAULT_DOMAIN}"
-PORT=443
-SERVICE_NAME="mtg-proxy"
 MTG_USER="mtgproxy"
-# ----------------------------
+SERVICE_NAME="mtg-proxy"
+MTG_PORT=8443    # Internal MTProxy port
+NGINX_PORT=443   # Public HTTPS port
 
 echo "Domain: $DOMAIN"
-echo "Port: $PORT"
 
-# Check if running as root
+# Check root
 if [ "$(id -u)" -ne 0 ]; then
-  echo "This script must be run as root."
-  exit 1
+    echo "Run this script as root."
+    exit 1
 fi
 
-# Install mtg if not present (Debian/Ubuntu)
-if ! command -v mtg >/dev/null 2>&1; then
-  echo "mtg not found. Installing..."
-  apt update
-  apt install -y mtg || { echo "mtg installation failed"; exit 1; }
-else
-  echo "mtg is already installed: $(command -v mtg)"
-fi
+# Install required packages
+apt update
+apt install -y mtg nginx certbot python3-certbot-nginx ufw
 
-# Create system user for service if not exists
+# Allow firewall
+ufw allow 22
+ufw allow 443
+ufw enable || true
+
+# Create system user for MTProxy
 if ! id -u "$MTG_USER" >/dev/null 2>&1; then
-  useradd --system --no-create-home --shell /usr/sbin/nologin "$MTG_USER"
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$MTG_USER"
 fi
 
 # Generate secret
 SECRET="$(mtg generate-secret 2>/dev/null || head -c 16 /dev/urandom | xxd -p -c 32)"
 echo "Generated secret: $SECRET"
 
-# Find mtg path
-MTG_BIN="$(command -v mtg || echo /usr/bin/mtg)"
-
-# Create systemd service file
+# MTProxy systemd service
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 cat > "$SERVICE_PATH" <<EOF
 [Unit]
@@ -57,7 +51,7 @@ After=network.target
 User=$MTG_USER
 Group=$MTG_USER
 Type=simple
-ExecStart=$MTG_BIN run --port $PORT --tls $DOMAIN --secret $SECRET
+ExecStart=$(command -v mtg) run --port $MTG_PORT --secret $SECRET
 Restart=on-failure
 RestartSec=5
 
@@ -65,28 +59,40 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd, enable & start service
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}.service"
+systemctl enable --now "$SERVICE_NAME"
 
-sleep 1
+# Obtain TLS certificate with certbot (nginx plugin)
+certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m admin@$DOMAIN || true
 
-# Check service status
-if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
-  echo "Service $SERVICE_NAME started successfully."
-else
-  echo "Service failed to start. Check logs:"
-  journalctl -u "${SERVICE_NAME}.service" --no-pager -n 100
-  exit 1
-fi
+# Configure nginx reverse proxy for MTProxy
+NGINX_CONF="/etc/nginx/sites-available/mtproxy"
+cat > "$NGINX_CONF" <<EOF
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN;
 
-# Print proxy link
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:$MTG_PORT;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}
+EOF
+
+ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/mtproxy
+nginx -t && systemctl reload nginx
+
+# Display proxy link
 echo
 echo "=== Telegram Proxy Info ==="
 echo "Server: $DOMAIN"
-echo "Port:   $PORT"
+echo "Port: 443 (TLS via nginx)"
 echo "Secret: $SECRET"
 echo
 echo "Telegram proxy link:"
-echo "tg://proxy?server=${DOMAIN}&port=${PORT}&secret=${SECRET}"
+echo "tg://proxy?server=${DOMAIN}&port=443&secret=${SECRET}"
 echo "==========================="
